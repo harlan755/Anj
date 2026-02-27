@@ -1,92 +1,62 @@
---// ==============================
---// CONFIG
---// ==============================
+local HttpService = game:GetService("HttpService")
+-- Ganti dengan URL webhook Discord Anda
 local WEBHOOK_URL = "https://discord.com/api/webhooks/1476004191058264168/ZwalmFfACOQntKSceu4nqnu7lR7JH-BKRVVp1C4sXvU6yLbx6AKp2g-XzI5ELRsxklfz"
 
---// ==============================
---// SERVICES
---// ==============================
-local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
-local MarketplaceService = game:GetService("MarketplaceService")
-local LocalPlayer = Players.LocalPlayer
+-- Fungsi untuk mendapatkan data player yang berperan sebagai bot
+local function getBotPlayerData(botPlayer)
+    -- Nama player/bot tidak perlu dimasker jika sudah merupakan nama bot resmi
+    local botName = botPlayer.Name .. " (Bot)"
 
---// ==============================
---// FUNCTION SEND WEBHOOK
---// ==============================
-local function sendStatus(status, color)
-    local gameName
-    pcall(function()
-        gameName = MarketplaceService:GetProductInfo(game.PlaceId).Name
-    end)
-    gameName = gameName or "Unknown Game"
-
-    local data = {
-        username = "Delta Executor Logger",
-        embeds = {{
-            title = "Player Status Update",
-            description = "**Player:** "..(LocalPlayer and LocalPlayer.Name or "Unknown")..
-                          "\n**UserId:** "..(LocalPlayer and LocalPlayer.UserId or "Unknown")..
-                          "\n**Status:** "..status..
-                          "\n**Game:** "..gameName..
-                          "\n**Time:** "..os.date("%Y-%m-%d %H:%M:%S"),
-            color = color
-        }}
+    return {
+        status = "Farming Blocks", -- Aktivitas aktual bot saat ini
+        botName = botName,
+        botStatus = botPlayer:IsDescendantOf(game.Players) and "Online" or "Offline",
+        botPing = tostring(math.floor(botPlayer:GetNetworkPing() * 1000)) .. "ms",
+        botGems = tostring(botPlayer.leaderstats and botPlayer.leaderstats.Gems.Value or 0):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", ""),
+        treesReady = botPlayer.leaderstats and botPlayer.leaderstats.TreesReady.Value or 0,
+        treesUnReady = botPlayer.leaderstats and botPlayer.leaderstats.TreesUnReady.Value or 0
     }
-
-    local jsonData = HttpService:JSONEncode(data)
-
-    pcall(function()
-        if request then
-            request({
-                Url = WEBHOOK_URL,
-                Method = "POST",
-                Headers = {["Content-Type"] = "application/json"},
-                Body = jsonData
-            })
-        else
-            HttpService:PostAsync(WEBHOOK_URL, jsonData, Enum.HttpContentType.ApplicationJson)
-        end
-    end)
 end
 
---// ==============================
---// INITIAL ONLINE STATUS
---// ==============================
-sendStatus("🟢 ONLINE", 65280)
+-- Fungsi untuk mengirim webhook data bot (player)
+local function sendBotPlayerWebhook(botPlayer)
+    local botData = getBotPlayerData(botPlayer)
 
---// ==============================
---// SEDANG BERMAIN GAME
---// ==============================
--- Kirim status PLAYING setelah 5 detik agar pemain benar-benar berada di game
-task.spawn(function()
-    task.wait(5)
-    sendStatus("🎮 PLAYING", 2551650) -- warna biru-ish
-end)
+    local message = table.concat({
+        "- <a:stat:1449444004801286268> `Status : " .. botData.status .. "`",
+        "- <:Bot:1283696244165836812> `Bot Name : " .. botData.botName .. "`",
+        "- <a:checkm:1181101683082797076> `Bot Status : " .. botData.status .. "`",
+        "- <:stable_ping:1408556059496546384> `Bot Ping : " .. botData.botPing .. "`",
+        "- <:gems:1465657925770154086> `Bot Gems : " .. botData.botGems .. "`",
+        "- <:treegt:1174568853091659827> `Trees : " .. botData.treesReady .. " Ready | " .. botData.treesUnReady .. " UnReady`"
+    }, "\n")
 
---// ==============================
---// DISCONNECT DETECTION
---// ==============================
-local success, coreGui = pcall(function()
-    return game:GetService("CoreGui").RobloxPromptGui
-end)
+    local requestBody = HttpService:JSONEncode({
+        content = message
+    })
 
-if success and coreGui then
-    coreGui.promptOverlay.ChildAdded:Connect(function(child)
-        if child.Name == "ErrorPrompt" then
-            task.spawn(function()
-                sendStatus("🟡 DISCONNECTED", 16776960)
-            end)
-        end
+    local success, err = pcall(function()
+        HttpService:PostAsync(WEBHOOK_URL, requestBody)
     end)
+
+    if success then
+        print("Webhook berhasil dikirim untuk bot (player): " .. botPlayer.Name)
+    else
+        warn("Gagal mengirim webhook untuk bot (player) " .. botPlayer.Name .. ": " .. err)
+    end
 end
 
---// ==============================
---// OFFLINE (LEAVE GAME)
---// ==============================
-game:BindToClose(function()
-    task.spawn(function()
-        sendStatus("🔴 OFFLINE", 16711680)
-        task.wait(1) -- buffer agar request sempat dikirim
-    end)
+-- Contoh: Jalankan saat bot player bergabung ke game
+game.Players.PlayerAdded:Connect(function(player)
+    -- Cek apakah player adalah bot (misalnya berdasarkan nama atau tag khusus)
+    if string.find(player.Name, "Bot") or player:GetAttribute("IsBot") then
+        player.CharacterAdded:Wait()
+        sendBotPlayerWebhook(player)
+        
+        -- Opsional: Kirim update berkala setiap beberapa detik
+        while player:IsDescendantOf(game.Players) do
+            wait(30) -- Update setiap 30 detik
+            sendBotPlayerWebhook(player)
+        end
+    end
 end)
